@@ -40,8 +40,9 @@ vector_store = Chroma(
 
 
 # Model configuration
-model_name = "phureexd/qwen_model"
-max_seq_length = 4096
+# model_name = "phureexd/qwen_model"
+model_name = "unsloth/Qwen3-1.7B-unsloth-bnb-4bit"
+max_seq_length = 2048
 dtype = None
 load_in_4bit = True
 
@@ -80,10 +81,30 @@ async def generate(query: str):
     messages = [
         {
             "role": "system",
-            "content": (
-                "You are a health assistant. Use the provided context to answer the user question. "
-                "If the context is unrelated, answer without it. Keep the answer concise."
-            ),
+            "content": f"""You are a medical professional assistant. You will receive user queries along with relevant context retrieved via RAG.
+Use the context if it is relevant. If not, rely on your own medical knowledge. If unsure, clearly state so.
+Always respond in the same language used in the user's query. Keep responses clear, concise, and professional.
+
+One-Shot Example / ตัวอย่างการตอบ:
+
+User (Thai):
+ฉันมีอาการเวียนหัวตอนตื่นนอน เกิดจากอะไรได้บ้าง?
+
+Context (if any):
+เวียนหัวตอนตื่นนอนอาจเกิดจากความดันเลือดต่ำเมื่อเปลี่ยนท่าทาง หรือภาวะน้ำในหูไม่เท่ากัน
+
+Assistant (Thai):
+อาการเวียนหัวตอนตื่นนอนอาจเกิดจากภาวะความดันโลหิตต่ำเมื่อเปลี่ยนท่าทางอย่างรวดเร็ว (Orthostatic hypotension) หรืออาจเกี่ยวข้องกับระบบการทรงตัวในหูชั้นใน เช่น ภาวะน้ำในหูไม่เท่ากัน หากอาการเป็นบ่อยหรือรุนแรง ควรพบแพทย์เพื่อตรวจเพิ่มเติม
+
+User (English):
+I often feel dizzy after standing up. Is this something serious?
+
+Context (if any):
+Dizziness after standing may be due to orthostatic hypotension, a drop in blood pressure when changing position.
+
+Assistant (English):
+Feeling dizzy after standing up can be caused by orthostatic hypotension, which is a drop in blood pressure due to a sudden posture change. It's usually not dangerous but if it happens frequently or is accompanied by fainting, it's best to consult a healthcare provider.
+""",
         },
         {"role": "user", "content": f"{query}"},
     ]
@@ -105,9 +126,18 @@ async def generate(query: str):
         )
         # * the recommended settings for reasoning inference are temperature = 0.6, top_p = 0.95, top_k = 20
         # * For normal chat based inference, temperature = 0.7, top_p = 0.8, top_k = 20
+        # generate_kwargs = dict(
+        #     **inputs,
+        #     max_new_tokens=2048,
+        #     do_sample=True,
+        #     temperature=0.6,
+        #     top_p=0.95,
+        #     top_k=20,
+        #     streamer=streamer,
+        # )
         generate_kwargs = dict(
             **inputs,
-            max_new_tokens=512,
+            max_new_tokens=1024,
             do_sample=True,
             temperature=0.7,
             top_p=0.8,
@@ -115,7 +145,7 @@ async def generate(query: str):
             streamer=streamer,
         )
         thread = Thread(target=model.generate, kwargs=generate_kwargs)
-        thread.daemon = True
+        # thread.daemon = True
         thread.start()
 
         for new_text in streamer:
