@@ -85,25 +85,7 @@ async def generate(query: str):
 Use the context if it is relevant. If not, rely on your own medical knowledge. If unsure, clearly state so.
 Always respond in the same language used in the user's query. Keep responses clear, concise, and professional.
 
-One-Shot Example / ตัวอย่างการตอบ:
-
-User (Thai):
-ฉันมีอาการเวียนหัวตอนตื่นนอน เกิดจากอะไรได้บ้าง?
-
-Context (if any):
-เวียนหัวตอนตื่นนอนอาจเกิดจากความดันเลือดต่ำเมื่อเปลี่ยนท่าทาง หรือภาวะน้ำในหูไม่เท่ากัน
-
-Assistant (Thai):
-อาการเวียนหัวตอนตื่นนอนอาจเกิดจากภาวะความดันโลหิตต่ำเมื่อเปลี่ยนท่าทางอย่างรวดเร็ว (Orthostatic hypotension) หรืออาจเกี่ยวข้องกับระบบการทรงตัวในหูชั้นใน เช่น ภาวะน้ำในหูไม่เท่ากัน หากอาการเป็นบ่อยหรือรุนแรง ควรพบแพทย์เพื่อตรวจเพิ่มเติม
-
-User (English):
-I often feel dizzy after standing up. Is this something serious?
-
-Context (if any):
-Dizziness after standing may be due to orthostatic hypotension, a drop in blood pressure when changing position.
-
-Assistant (English):
-Feeling dizzy after standing up can be caused by orthostatic hypotension, which is a drop in blood pressure due to a sudden posture change. It's usually not dangerous but if it happens frequently or is accompanied by fainting, it's best to consult a healthcare provider.
+Extremely important: Answer in the same language as the user query.
 """,
         },
         {"role": "user", "content": f"{query}"},
