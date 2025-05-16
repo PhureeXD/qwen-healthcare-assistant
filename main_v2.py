@@ -6,12 +6,8 @@ import uvicorn
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
-from langchain.agents import AgentExecutor, create_tool_calling_agent
 from langchain_chroma import Chroma
 from langchain_core.messages import AIMessage, HumanMessage
-from langchain_core.output_parsers import StrOutputParser
-from langchain_core.prompts import ChatPromptTemplate
-from langchain_core.tools import tool
 from langchain_huggingface import HuggingFaceEmbeddings
 from langchain_ollama import ChatOllama
 
@@ -32,13 +28,13 @@ embeddings = HuggingFaceEmbeddings(model_name="BAAI/bge-m3")
 
 vector_store = Chroma(
     embedding_function=embeddings,
-    persist_directory="C:/Users/LENOVO/Downloads/chroma_langchain_db_3",
+    persist_directory="/app/chroma_db",  # C:/Users/LENOVO/Downloads/chroma_langchain_db_3
 )
 
 
 # Initialize ChatOllama
 llm = ChatOllama(
-    model="hf.co/phureexd/qwen3_v2_gguf:Q4_K_M",
+    model="hf.co/phureexd/qwen3_v2_gguf:Q4_K_M",  # hf.co/phureexd/qwen3_v2_gguf:Q4_K_M
     temperature=0.7,
     top_p=0.8,
     top_k=20,
@@ -56,7 +52,7 @@ graph_builder = StateGraph(MessagesState)
 from langchain_community.cross_encoders import HuggingFaceCrossEncoder
 
 cross_encoder = HuggingFaceCrossEncoder(
-    model_name="BAAI/bge-reranker-v2-m3", model_kwargs={"device": "cuda"}
+    model_name="BAAI/bge-reranker-v2-m3", model_kwargs={"device": "cpu"}
 )
 
 # Create a reranker
@@ -296,5 +292,5 @@ async def clear_conversation():
 
 
 # Run the server
-if __name__ == "__main__":
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+# if __name__ == "__main__":
+#     uvicorn.run(app, host="0.0.0.0", port=8000)
