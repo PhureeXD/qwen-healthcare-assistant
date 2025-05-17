@@ -21,6 +21,7 @@ RUN pip install --upgrade pip && pip install -r requirements.txt
 
 # Copy application files
 COPY . .
+COPY chroma_db /app/chroma_db
 
 # Fix line endings and permissions for shell scripts
 RUN dos2unix /app/start-ollama.sh && chmod +x /app/start-ollama.sh
