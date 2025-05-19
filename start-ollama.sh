@@ -6,5 +6,6 @@ ollama serve &
 # Wait for Ollama to start
 sleep 5
 
-# Pull and run <YOUR_MODEL_NAME>
-ollama pull hf.co/phureexd/qwen3_v2_gguf:Q4_K_M
+# Create a custom model using the Modelfile
+ollama create custom-model -f /app/Modelfile.local
+
