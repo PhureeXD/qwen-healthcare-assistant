@@ -188,16 +188,16 @@ retriever_tool = init_retriever_tool(
 # --- LangGraph Node Definitions ---
 
 
-def query_or_respond_node_logic(state: MessagesState):
+async def query_or_respond_node_logic(state: MessagesState):
     """
     Node function: Decides whether to call a tool for retrieval or respond directly.
     Binds the retriever_tool to the LLM for this decision.
     """
-    response = llm.bind_tools([retriever_tool]).invoke(state["messages"])
+    response = await llm.bind_tools([retriever_tool]).ainvoke(state["messages"])
     return {"messages": [response]}
 
 
-def generate_rag_response_node_logic(state: MessagesState):
+async def generate_rag_response_node_logic(state: MessagesState):
     """
     Node function: Generates a response using retrieved documents (if any).
     """
@@ -246,7 +246,7 @@ def generate_rag_response_node_logic(state: MessagesState):
         SystemMessage(content=current_system_prompt_content)
     ] + conversation_history_for_llm
 
-    response = llm.invoke(prompt_for_generation)
+    response = await llm.ainvoke(prompt_for_generation)
     return {"messages": [response]}
 
 
@@ -366,10 +366,8 @@ async def generate_endpoint(query: str, useRAG: bool = False):
                     latest_message, "artifact"
                 ):
                     print(f"Tool '{latest_message.name}' executed. Artifact content:")
-                    if (
-                        latest_message.artifact
-                        and isinstance(latest_message.artifact, list)
-                        and latest_message.artifact
+                    if latest_message.artifact and isinstance(
+                        latest_message.artifact, list
                     ):
                         # print every document in the artifact
                         source_list = set()
