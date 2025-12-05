@@ -1,15 +1,3 @@
-FROM python:3.11-slim
-
-WORKDIR /app
-ENV HF_HUB_DISABLE_PROGRESS_BARS=1 # Prevents Hugging Face from showing progress bars
-ENV ANONYMIZED_TELEMETRY=False # Disables telemetry
-ENV PYTHONUNBUFFERED=1 # Prevents Python from buffering output
-
-# Install system dependencies
-RUN apt-get update && apt-get install -y \
-    python3-dev \
-    build-essential \
-    curl \
     dos2unix \
     && rm -rf /var/lib/apt/lists/*
 
