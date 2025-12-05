@@ -318,6 +318,11 @@ app.add_middleware(
 # --- FastAPI Endpoints ---
 
 
+@app.get("/", summary="Root endpoint")
+async def root():
+    return {"message": "Health Assistant API is running!", "docs_url": "/docs"}
+
+
 @app.get("/generate", summary="Generate a response from the health assistant model")
 async def generate_endpoint(
     query: str,
