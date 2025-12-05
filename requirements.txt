@@ -1,0 +1,15 @@
+fastapi==0.115.12
+uvicorn==0.34.2
+langchain==0.3.25
+langchain-core==0.3.58
+langchain-chroma==0.2.3
+langchain-huggingface==0.1.2
+langchain-ollama==0.3.2
+langchain-community==0.3.23
+langgraph==0.4.1
+chromadb==0.6.3
+huggingface-hub==0.30.2
+sentence-transformers==3.4.1
+transformers==4.51.3
+aiocron==1.8
+aiohttp==3.11.11
