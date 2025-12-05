@@ -1,3 +1,15 @@
+FROM python:3.11-slim
+
+WORKDIR /app
+ENV HF_HUB_DISABLE_PROGRESS_BARS=1
+ENV ANONYMIZED_TELEMETRY=False
+ENV PYTHONUNBUFFERED=1
+
+# Install system dependencies
+RUN apt-get update && apt-get install -y \
+    python3-dev \
+    build-essential \
+    curl \
     dos2unix \
     && rm -rf /var/lib/apt/lists/*
 
