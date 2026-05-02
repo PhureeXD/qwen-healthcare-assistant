@@ -11,6 +11,7 @@ RUN apt-get update && apt-get install -y \
     build-essential \
     curl \
     dos2unix \
+    zstd \
     && rm -rf /var/lib/apt/lists/*
 
 # Install Ollama
