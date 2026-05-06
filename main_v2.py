@@ -389,11 +389,11 @@ async def generate_endpoint(
                     latest_message, "artifact"
                 ):
                     print(f"Tool '{latest_message.name}' executed. Artifact content:")
+                    source_list = set()
                     if latest_message.artifact and isinstance(
                         latest_message.artifact, list
                     ):
                         # print every document in the artifact
-                        source_list = set()
                         for doc in latest_message.artifact:
                             source = doc.metadata.get("source", "Unknown source")
 

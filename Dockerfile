@@ -19,7 +19,8 @@ RUN curl -fsSL https://ollama.com/install.sh | sh
 
 # Install Python dependencies
 COPY requirements.txt .
-RUN pip install --upgrade --no-cache-dir pip && pip install --no-cache-dir -r requirements.txt 
+RUN pip install --no-cache-dir uv \
+    && uv pip install --system --no-cache -r requirements.txt 
 
 # Set HF_HOME to ensure models are stored in a consistent location
 ENV HF_HOME=/app/hf_cache
