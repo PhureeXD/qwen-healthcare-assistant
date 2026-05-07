@@ -8,12 +8,12 @@ import uvicorn
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
-from langchain.retrievers import ContextualCompressionRetriever
-from langchain.retrievers.document_compressors import CrossEncoderReranker
-from langchain.tools.retriever import create_retriever_tool
 from langchain_chroma import Chroma
+from langchain_classic.retrievers import ContextualCompressionRetriever
+from langchain_classic.retrievers.document_compressors import CrossEncoderReranker
 from langchain_community.cross_encoders import HuggingFaceCrossEncoder
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
+from langchain_core.tools.retriever import create_retriever_tool
 from langchain_huggingface import HuggingFaceEmbeddings
 from langchain_ollama import ChatOllama
 from langgraph.checkpoint.memory import MemorySaver
@@ -207,6 +207,7 @@ async def query_or_respond_node_logic(state: MessagesState):
     Binds the retriever_tool to the LLM for this decision.
     """
     response = await llm.bind_tools([retriever_tool]).ainvoke(state["messages"])
+    _repair_retriever_tool_calls(response, state["messages"])
     return {"messages": [response]}
 
 
@@ -289,6 +290,81 @@ def create_lang_graph(checkpointer_instance):
     return graph_builder.compile(checkpointer=checkpointer_instance)
 
 
+def _stringify_stream_content(content):
+    """Return text from LangChain string or content-block streaming chunks."""
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        text_parts = []
+        for block in content:
+            if isinstance(block, dict):
+                text_parts.append(str(block.get("text") or block.get("content") or ""))
+            else:
+                text_parts.append(str(block))
+        return "".join(text_parts)
+    return str(content) if content else ""
+
+
+def _latest_human_content(messages):
+    for message in reversed(messages):
+        if getattr(message, "type", None) == "human":
+            return _stringify_stream_content(getattr(message, "content", ""))
+    return ""
+
+
+def _repair_retriever_tool_calls(response, messages):
+    fallback_query = _latest_human_content(messages)
+    if not fallback_query:
+        return
+
+    for tool_call in getattr(response, "tool_calls", []) or []:
+        if not isinstance(tool_call, dict):
+            continue
+        if tool_call.get("name") != "retrieve_health_info":
+            continue
+
+        args = tool_call.get("args")
+        if not isinstance(args, dict):
+            tool_call["args"] = {"query": fallback_query}
+            continue
+
+        query = args.get("query")
+        if not isinstance(query, str) or not query.strip():
+            args["query"] = fallback_query
+
+
+def _iter_tool_messages(value):
+    if isinstance(value, ToolMessage):
+        yield value
+    elif isinstance(value, dict):
+        for nested_value in value.values():
+            yield from _iter_tool_messages(nested_value)
+    elif isinstance(value, (list, tuple, set)):
+        for nested_value in value:
+            yield from _iter_tool_messages(nested_value)
+
+
+def _source_list_from_tool_message(tool_message: ToolMessage):
+    source_list = set()
+    if tool_message.name == "retrieve_health_info" and hasattr(
+        tool_message, "artifact"
+    ):
+        print(f"Tool '{tool_message.name}' executed. Artifact content:")
+        if tool_message.artifact and isinstance(tool_message.artifact, list):
+            for doc in tool_message.artifact:
+                if not hasattr(doc, "metadata") or not hasattr(doc, "page_content"):
+                    continue
+
+                source = doc.metadata.get("source", "Unknown source")
+
+                if source != "Unknown source":
+                    source_list.add(source)
+
+                print(f"  Source: {source}\n   Content: {doc.page_content}")
+
+    return source_list
+
+
 # Initialize checkpointer and compile graph
 memory_saver = MemorySaver()
 graph = create_lang_graph(memory_saver)
@@ -361,46 +437,27 @@ async def generate_endpoint(
     graph_input = {"messages": input_messages}
 
     async def stream_response_events():
-        # graph.stream with stream_mode="messages" yields the ENTIRE list of messages
-        # in the current state each time a node completes.
-        async for messages_in_state in graph.astream(
-            graph_input, config, stream_mode="messages"
+        async for stream_mode, chunk in graph.astream(
+            graph_input, config, stream_mode=["messages", "updates"]
         ):
-            if not messages_in_state:
+            if not chunk:
                 continue
 
-            # Get the current message from the state
-            latest_message = messages_in_state[0]
+            if stream_mode == "messages":
+                message_chunk, _metadata = chunk
+                if isinstance(message_chunk, AIMessage):
+                    content = _stringify_stream_content(
+                        getattr(message_chunk, "content", "")
+                    )
+                    if content:
+                        yield f"data: {content}\n\n"
+                    elif getattr(message_chunk, "tool_calls", None):
+                        print(f"AI requested Tool call: {message_chunk.tool_calls}")
+                continue
 
-            if isinstance(latest_message, AIMessage):
-                if latest_message.content:  # Final textual response
-                    # print(
-                    #     f"Streaming AI content: {latest_message.content}"
-                    # )
-                    yield f"data: {latest_message.content}\n\n"
-                elif latest_message.tool_calls:  # AI message requesting a tool call
-                    print(f"AI requested Tool call: {latest_message.tool_calls}")
-                    # You might want to send a status to the client, e.g., "Thinking..." or "Retrieving info..."
-                    # yield f"event: tool_call\ndata: {json.dumps(latest_message.tool_calls)}\n\n"
-            elif isinstance(
-                latest_message, ToolMessage
-            ):  # Message containing tool execution results
-                if latest_message.name == "retrieve_health_info" and hasattr(
-                    latest_message, "artifact"
-                ):
-                    print(f"Tool '{latest_message.name}' executed. Artifact content:")
-                    source_list = set()
-                    if latest_message.artifact and isinstance(
-                        latest_message.artifact, list
-                    ):
-                        # print every document in the artifact
-                        for doc in latest_message.artifact:
-                            source = doc.metadata.get("source", "Unknown source")
-
-                            if source != "Unknown source":
-                                source_list.add(source)
-
-                            print(f"  Source: {source}\n   Content: {doc.page_content}")
+            if stream_mode == "updates":
+                for tool_message in _iter_tool_messages(chunk):
+                    source_list = _source_list_from_tool_message(tool_message)
                     yield f"data: **Source:**{str(source_list)}\n\n"
 
     return StreamingResponse(
@@ -414,15 +471,7 @@ async def generate_endpoint(
 async def clear_conversation_endpoint(thread_id: str = THREAD_ID):
     """Clears the conversation history for the specified thread_id."""
     try:
-        # Note: MemorySaver in some versions might not support explicit deletion easily via public API
-        # This is a best-effort attempt or placeholder for actual persistence deletion
-        # If using a real DB checkpointer, you would delete rows here.
-        # For MemorySaver, we might just need to reset the state or let it be if it's per-request instance (it's not here).
-        # Actually, MemorySaver stores in a dict. We can try accessing it if we really need to clear.
-        if hasattr(memory_saver, "storage"):
-             if thread_id in memory_saver.storage:
-                 del memory_saver.storage[thread_id]
-
+        memory_saver.delete_thread(thread_id)
         print(f"Conversation history cleared for thread_id: {thread_id}")
         return {"status": "success", "message": "Conversation history cleared."}
     except Exception as e:

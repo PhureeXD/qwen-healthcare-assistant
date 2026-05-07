@@ -12,8 +12,7 @@ def download_with_retries(repo_id, retries=5, delay=10):
     for i in range(retries):
         try:
             print(f"Downloading {repo_id} (Attempt {i+1}/{retries})...")
-            # resume_download=True ensures we don't start from scratch if interrupted
-            snapshot_download(repo_id=repo_id, resume_download=True)
+            snapshot_download(repo_id=repo_id)
             print(f"Successfully downloaded {repo_id}")
             return
         except Exception as e:
@@ -51,7 +50,7 @@ def download_models():
     llm_filename = "unsloth.Q4_K_M.gguf"
     print(f"Downloading LLM: {llm_filename} from {llm_repo_id}")
     try:
-        hf_hub_download(repo_id=llm_repo_id, filename=llm_filename, local_dir=".", local_dir_use_symlinks=False)
+        hf_hub_download(repo_id=llm_repo_id, filename=llm_filename, local_dir=".")
         print(f"Successfully downloaded {llm_filename}")
     except Exception as e:
         print(f"Error downloading LLM: {e}")
