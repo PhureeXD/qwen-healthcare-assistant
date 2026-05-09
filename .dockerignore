@@ -1,0 +1,23 @@
+.git
+.gitignore
+.gitattributes
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.venv/
+venv/
+env/
+
+# Models are downloaded inside the Docker build by download_models.py.
+*.gguf
+hf_cache/
+
+# Local docs/artifacts not needed at runtime.
+README.md
+CLAUDE.md
+docker.md
+graph.png

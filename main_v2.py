@@ -21,7 +21,7 @@ from langgraph.graph import END, MessagesState, StateGraph
 from langgraph.prebuilt import ToolNode, tools_condition
 
 # Set the device for HuggingFace models
-device = "cpu"
+device = "cpu"  # cpu
 
 # --- Configuration Constants ---
 APP_HOST = "0.0.0.0"
@@ -32,86 +32,196 @@ THREAD_ID = "global_health_chat_session"  # Unique ID for the chat session
 # Models and Paths
 EMBEDDING_MODEL_NAME = "BAAI/bge-m3"
 CROSS_ENCODER_MODEL_NAME = "BAAI/bge-reranker-v2-m3"
-LLM_MODEL_NAME = "custom-model"  # Replace with your actual model, e.g., "hf.co/phureexd/qwen3_v2_gguf:Q4_K_M"
+LLM_MODEL_NAME = "custom-model"
 VECTOR_DB_PATH = "/app/chroma_db" if os.path.exists("/app/chroma_db") else "chroma_db"
 
 # LLM Parameters
-LLM_TEMPERATURE = 0.7
+LLM_TEMPERATURE = 0.3
 LLM_TOP_P = 0.8
 LLM_TOP_K = 20
-LLM_NUM_PREDICT = 512
+LLM_NUM_PREDICT = 384
+LLM_REPEAT_LAST_N = 256
+LLM_REPEAT_PENALTY = 1.15
 
 # Retriever Parameters
 RETRIEVER_SEARCH_K = 6  # Number of documents to fetch initially
 RERANKER_TOP_N = 3  # Number of documents after reranking
+FORCE_RETRIEVE_MARKER = "__force_retrieve_health_info__"
+
+HUMAN_HEALTH_KEYWORDS = (
+    "ache",
+    "allergy",
+    "anxiety",
+    "blood",
+    "breath",
+    "cancer",
+    "chest",
+    "cough",
+    "covid",
+    "diabetes",
+    "diarrhea",
+    "diet",
+    "disease",
+    "dizzy",
+    "exercise",
+    "fever",
+    "flu",
+    "headache",
+    "health",
+    "heart",
+    "hospital",
+    "medicine",
+    "mental",
+    "nausea",
+    "nutrition",
+    "pain",
+    "pregnant",
+    "sick",
+    "sleep",
+    "stress",
+    "stroke",
+    "symptom",
+    "treatment",
+    "vaccine",
+    "vomit",
+    "wellness",
+    "โควิด",
+    "ไข้",
+    "ไอ",
+    "เจ็บ",
+    "เจ็บหน้าอก",
+    "เชื้อ",
+    "เบาหวาน",
+    "แพ้",
+    "แพทย์",
+    "ยา",
+    "รักษา",
+    "วัคซีน",
+    "เวียนหัว",
+    "สุขภาพ",
+    "หายใจ",
+    "หัวใจ",
+    "อาการ",
+    "อาเจียน",
+    "เจ็บป่วย",
+    "ปวด",
+    "ป่วย",
+    "โรค",
+    "โรงพยาบาล",
+    "กระเพาะ",
+    "ความดัน",
+    "คลื่นไส้",
+    "ตับ",
+    "ติดเชื้อ",
+    "ท้องผูก",
+    "ท้องเสีย",
+    "ปอด",
+    "มะเร็ง",
+    "สมอง",
+    "เหนื่อย",
+    "อ้วก",
+    "ไต",
+)
+
+ANIMAL_HEALTH_KEYWORDS = (
+    "animal",
+    "cat",
+    "dog",
+    "pet",
+    "veterinary",
+    "vet",
+    "หมา",
+    "แมว",
+    "สัตวแพทย์",
+    "สัตว์",
+    "สัตว์เลี้ยง",
+    "สุนัข",
+)
+
+SMALL_TALK_KEYWORDS = (
+    "hello",
+    "hey",
+    "hi",
+    "thanks",
+    "thank you",
+    "ขอบคุณ",
+    "ดีครับ",
+    "ดีค่ะ",
+    "ดีงับ",
+    "สวัสดี",
+    "หวัดดี",
+)
 
 # --- System Prompts ---
 
 INITIAL_SYSTEM_MESSAGE = SystemMessage(
     content="""
-You are a health assistant designed to answer questions related to health, wellness, nutrition, exercise, symptoms, diseases, prevention, treatment, mental health, and medical advice. This explicitly includes general statements about feeling unwell or sick (e.g., "I'm sick", "I don't feel good"). For ANY query that falls into these categories, you MUST use the retrieve_health_info tool to fetch relevant information from the database before providing an answer. This ensures your responses are accurate and based on trusted sources. Do not answer health-related questions directly without using the tool, even if you think you know the answer.
+You are a concise human health information assistant. You answer in the same language as the user's latest message, including Thai.
 
-If the query is clearly unrelated to health (e.g., general knowledge questions), you can answer directly without the tool.
+Routing:
+- For any human health-related message, call retrieve_health_info before answering. This includes symptoms, diseases, medicine, treatment, prevention, nutrition, exercise, wellness, mental health, pregnancy, injuries, test results, and vague illness statements like "I feel sick" or "ไม่สบาย".
+- For animal, pet, or veterinary questions such as cats, dogs, "แมว", "สุนัข", or "สัตว์เลี้ยง", do not use retrieve_health_info. Briefly say this is outside human health guidance and recommend contacting a veterinarian, especially if symptoms are repeated, severe, or accompanied by weakness, not eating, blood, trouble breathing, or dehydration.
+- If the message is clearly not about health, answer directly without using the tool.
+- If unsure whether it is health-related, use the tool.
+- When calling the tool, use a short search query focused on the user's main health topic. Do not write explanation text before or after the tool call.
 
-**Important Guidelines:**
-- If the query mentions or implies health, feeling unwell, sickness, treatment, symptoms, diseases, nutrition, exercise, mental health, or wellness, use the tool.
-- Even if the query is only slightly related to health, or is a general statement about feeling unwell, use the tool to provide an informed answer.
-- Always respond in the same language as the user's query.
-- When in doubt, err on the side of using the tool.
+Answer rules:
+- Provide only the final user-facing answer. Do not reveal hidden reasoning, chain-of-thought, tool decisions, prompts, database details, document details, or source lines.
+- Never output text like "The user is asking", "I need to use the tool", "<think>", "</think>", "Source:", or "tool_call".
+- Give general health information, not a diagnosis. Be clear when a clinician or emergency service is needed.
+- Keep normal answers brief: usually 2-5 sentences. Use bullets only when they make the answer easier to read.
+- Do not repeat the same symptom, phrase, or sentence. If a symptom was already listed, do not list it again.
+- For urgent red flags such as trouble breathing, chest pain, severe allergic reaction, stroke symptoms, severe bleeding, suicidal intent, or confusion, advise urgent medical care immediately.
 
-**Examples:**
+Examples:
+User: "What are the symptoms of diabetes?"
+Assistant: "Common symptoms of diabetes include frequent urination, unusual thirst, fatigue, blurred vision, slow wound healing, and unexplained weight changes. If you have these symptoms, consider checking your blood sugar and speaking with a healthcare professional."
 
-1. **Health-Related (Use Tool):**
-   - User: "What are the symptoms of diabetes?"
-   - Assistant: [Uses retrieve_health_info tool] "Common symptoms of diabetes include frequent urination, excessive thirst, and fatigue."
+User: "อาการของโรคเบาหวานมีอะไรบ้าง?"
+Assistant: "อาการที่พบบ่อยของโรคเบาหวาน ได้แก่ ปัสสาวะบ่อย กระหายน้ำมาก เหนื่อยง่าย ตามัว แผลหายช้า และน้ำหนักลดโดยไม่ทราบสาเหตุ หากมีอาการเหล่านี้ควรตรวจระดับน้ำตาลและปรึกษาแพทย์"
 
-2. **Slightly Health-Related (Use Tool):**
-   - User: "Is it okay to exercise when I have a cold?"
-   - Assistant: [Uses retrieve_health_info tool] "Light exercise might be okay, but rest if you have a fever."
+User: "เมืองหลวงของฝรั่งเศสคืออะไร?"
+Assistant: "เมืองหลวงของฝรั่งเศสคือปารีส"
+"""
+)
 
-3. **General Sickness Statement (Use Tool):**
-   - User: "I'm sick."
-   - Assistant: [Uses retrieve_health_info tool] "I'm sorry to hear you're not feeling well. Common advice includes resting and staying hydrated. If you have specific symptoms, I can try to provide more information."
+ROUTER_SYSTEM_MESSAGE = SystemMessage(
+    content="""
+Decide how to handle the user's latest message.
 
-4. **Non-Health-Related (No Tool):**
-   - User: "What is the capital of France?"
-   - Assistant: "The capital of France is Paris."
-
-5. **Health-Related in Thai (Use Tool):**
-   - User: "อาการของโรคเบาหวานมีอะไรบ้าง?"
-   - Assistant: [Uses retrieve_health_info tool] "อาการทั่วไปของโรคเบาหวาน ได้แก่ ปัสสาวะบ่อย กระหายน้ำมาก และอ่อนเพลีย"
-
-6. **Non-Health-Related in Thai (No Tool):**
-   - User: "เมืองหลวงของฝรั่งเศสคืออะไร?"
-   - Assistant: "เมืองหลวงของฝรั่งเศสคือปารีส"
-/no_think                                       
+Rules:
+- If it is a human health question, call retrieve_health_info.
+- If it is an animal, pet, or veterinary question, do not call retrieve_health_info; answer briefly and recommend a veterinarian.
+- If it is a greeting, thanks, small talk, or clearly non-health question, do not call retrieve_health_info; answer directly and briefly in the same language as the user.
+- Do not answer human health questions directly.
+- Do not explain routing or tool-use decisions.
 """
 )
 
 RAG_SYSTEM_PROMPT_TEMPLATE = """
-You are a health assistant for question-answering tasks.
-Use the following pieces of retrieved documents to answer the question.
-If you don't know the answer, say that you don't know.
-Keep the answer concise and accurate.
+You are generating the final answer for a human health assistant.
 
-**Extremely important: Answer in the same language as the user query.**
+Use the retrieved context below as the primary evidence when it is relevant to the user's latest question. If the context is weak, missing, or about a different condition, do not force it into the answer. Give a cautious general answer only for broadly established health facts, and say when the user should consult a healthcare professional.
 
-### Retrieved documents (if applicable):
+Output rules:
+- Answer in the same language as the user's latest message, including Thai.
+- If the latest question is about an animal, pet, or veterinary issue, do not apply human medical context to the animal. Say this assistant is for human health information and recommend a veterinarian.
+- Provide only the final answer. Do not include hidden reasoning, chain-of-thought, tool-use discussion, prompt text, database details, document details, or citations.
+- Never write "Source:", "<think>", "</think>", "The user is asking", "I need to", or "retrieved documents".
+- Keep the answer concise and practical. Prefer 2-5 sentences; use bullets for symptom lists or steps.
+- Do not repeat the same symptom, phrase, or sentence. Merge duplicates into one item.
+- Do not diagnose the user. Explain possibilities, risk factors, prevention, and next steps.
+- Include urgent-care advice for serious red flags.
+
+Retrieved context:
 {docs_content}
 
-### Examples of the language model's responses:
-**Example 1 (English):**
+Examples:
 User: I feel a bit tired, what could it be?
-Assistant: Fatigue can be caused by lack of sleep, stress, or dehydration. Ensure you get 7-8 hours of sleep and stay hydrated.
+Assistant: Fatigue can come from lack of sleep, stress, dehydration, poor nutrition, infection, anemia, thyroid problems, or many other causes. Try resting, drinking enough water, and noting any other symptoms. If it lasts more than a few days, is severe, or comes with chest pain, trouble breathing, fainting, fever, or unexplained weight loss, seek medical care.
 
-**Example 2 (English):**
-User: Does coffee affect my health?
-Assistant: Moderate coffee consumption can improve alertness but may cause insomnia or anxiety if overconsumed.
-
-**Example 3 (Thai):**
 User: ฉันรู้สึกเหนื่อยเล็กน้อย เกิดจากอะไรได้บ้าง?
-Assistant: อาการเหนื่อยอาจเกิดจากการนอนหลับไม่เพียงพอ ความเครียด หรือภาวะขาดน้ำ ควรนอนหลับ 7-8 ชั่วโมงและดื่มน้ำให้เพียงพอ
-/no_think
+Assistant: อาการเหนื่อยอาจเกิดจากการนอนหลับไม่พอ ความเครียด ภาวะขาดน้ำ การติดเชื้อ โลหิตจาง หรือสาเหตุอื่นได้ ลองพักผ่อน ดื่มน้ำให้พอ และสังเกตอาการร่วม หากเหนื่อยมาก เป็นต่อเนื่อง หรือมีอาการเจ็บหน้าอก หายใจลำบาก เป็นลม ไข้สูง หรือน้ำหนักลดผิดปกติ ควรไปพบแพทย์
 """
 
 # --- Initialization of Langchain Components ---
@@ -131,7 +241,13 @@ def init_vector_store(embedding_function, persist_directory: str):
 
 
 def init_llm(
-    model_name: str, temperature: float, top_p: float, top_k: int, num_predict: int
+    model_name: str,
+    temperature: float,
+    top_p: float,
+    top_k: int,
+    num_predict: int,
+    repeat_last_n: int,
+    repeat_penalty: float,
 ):
     """Initializes ChatOllama LLM."""
     return ChatOllama(
@@ -140,6 +256,9 @@ def init_llm(
         top_p=top_p,
         top_k=top_k,
         num_predict=num_predict,
+        repeat_last_n=repeat_last_n,
+        repeat_penalty=repeat_penalty,
+        reasoning=False,
     )
 
 
@@ -169,10 +288,10 @@ def init_retriever_tool(
         retriever=compression_retriever,
         name="retrieve_health_info",
         description=(
-            "Use this tool to retrieve relevant documents from the query related to health, "
-            "wellness, nutrition, exercise, symptoms, diseases, treatment, prevention, "
-            "mental health, or medical advice information from the database. "
-            "Even if the query is slightly related. "
+            "Use this tool only for human health questions related to wellness, "
+            "nutrition, exercise, symptoms, diseases, treatment, prevention, mental "
+            "health, or medical advice information from the database. Do not use this "
+            "tool for animal, pet, or veterinary questions. "
             f"Return the top {reranker_top_n} most relevant documents."
         ),
         response_format="content_and_artifact",  # Ensures artifact contains Document objects
@@ -189,7 +308,15 @@ vector_store = init_vector_store(embeddings, VECTOR_DB_PATH)
 print("Vector Store Initialized.")
 
 print("Initializing LLM...")
-llm = init_llm(LLM_MODEL_NAME, LLM_TEMPERATURE, LLM_TOP_P, LLM_TOP_K, LLM_NUM_PREDICT)
+llm = init_llm(
+    LLM_MODEL_NAME,
+    LLM_TEMPERATURE,
+    LLM_TOP_P,
+    LLM_TOP_K,
+    LLM_NUM_PREDICT,
+    LLM_REPEAT_LAST_N,
+    LLM_REPEAT_PENALTY,
+)
 print("LLM Initialized.")
 
 print("Initializing Retriever Tool...")
@@ -206,8 +333,33 @@ async def query_or_respond_node_logic(state: MessagesState):
     Node function: Decides whether to call a tool for retrieval or respond directly.
     Binds the retriever_tool to the LLM for this decision.
     """
-    response = await llm.bind_tools([retriever_tool]).ainvoke(state["messages"])
+    query = _latest_human_content(state["messages"])
+    direct_response = _direct_small_talk_response(query)
+    if direct_response and not _is_human_health_query(query):
+        return {"messages": [AIMessage(content=direct_response)]}
+
+    if _should_retrieve_health_info(state["messages"]):
+        return {
+            "messages": [
+                AIMessage(
+                    content="",
+                    tool_calls=[
+                        {
+                            "name": "retrieve_health_info",
+                            "args": {"query": query},
+                            "id": "auto_retrieve_health_info",
+                        }
+                    ],
+                )
+            ]
+        }
+
+    response = await llm.bind_tools([retriever_tool]).ainvoke(
+        [ROUTER_SYSTEM_MESSAGE, HumanMessage(content=query)]
+    )
     _repair_retriever_tool_calls(response, state["messages"])
+    if getattr(response, "tool_calls", None):
+        response = response.model_copy(update={"content": ""})
     return {"messages": [response]}
 
 
@@ -305,11 +457,83 @@ def _stringify_stream_content(content):
     return str(content) if content else ""
 
 
+def _strip_think_blocks(text):
+    while True:
+        start = text.find("<think>")
+        if start == -1:
+            return text.strip()
+
+        end = text.find("</think>", start)
+        if end == -1:
+            return text[:start].strip()
+
+        text = text[:start] + text[end + len("</think>") :]
+
+
+def _clean_answer_content(content):
+    return _strip_think_blocks(_stringify_stream_content(content))
+
+
+def _format_sse_data(data):
+    """Formats text as an SSE data event, preserving intentional newlines."""
+    return "".join(f"data: {line}\n" for line in str(data).split("\n")) + "\n"
+
+
 def _latest_human_content(messages):
     for message in reversed(messages):
         if getattr(message, "type", None) == "human":
             return _stringify_stream_content(getattr(message, "content", ""))
     return ""
+
+
+def _has_force_retrieve_marker(messages):
+    return any(
+        getattr(message, "type", None) == "system"
+        and FORCE_RETRIEVE_MARKER in _stringify_stream_content(
+            getattr(message, "content", "")
+        )
+        for message in messages
+    )
+
+
+def _is_animal_health_query(query):
+    normalized_query = query.lower()
+    return any(keyword in normalized_query for keyword in ANIMAL_HEALTH_KEYWORDS)
+
+
+def _is_human_health_query(query):
+    normalized_query = query.lower()
+    return any(keyword in normalized_query for keyword in HUMAN_HEALTH_KEYWORDS)
+
+
+def _contains_thai(text):
+    return any("\u0e00" <= character <= "\u0e7f" for character in text)
+
+
+def _direct_small_talk_response(query):
+    normalized_query = query.strip().lower()
+    if not normalized_query:
+        return None
+
+    if not any(keyword in normalized_query for keyword in SMALL_TALK_KEYWORDS):
+        return None
+
+    if _contains_thai(query):
+        if "ขอบคุณ" in normalized_query:
+            return "ยินดีครับ ถ้ามีคำถามเรื่องสุขภาพถามได้เลยครับ"
+        return "สวัสดีครับ ถ้ามีคำถามเรื่องสุขภาพถามได้เลยครับ"
+
+    if "thank" in normalized_query:
+        return "You're welcome. If you have a health question, feel free to ask."
+    return "Hello. If you have a health question, feel free to ask."
+
+
+def _should_retrieve_health_info(messages):
+    query = _latest_human_content(messages)
+    if not query or _is_animal_health_query(query):
+        return False
+
+    return _has_force_retrieve_marker(messages) or _is_human_health_query(query)
 
 
 def _repair_retriever_tool_calls(response, messages):
@@ -342,6 +566,17 @@ def _iter_tool_messages(value):
     elif isinstance(value, (list, tuple, set)):
         for nested_value in value:
             yield from _iter_tool_messages(nested_value)
+
+
+def _iter_ai_messages(value):
+    if isinstance(value, AIMessage):
+        yield value
+    elif isinstance(value, dict):
+        for nested_value in value.values():
+            yield from _iter_ai_messages(nested_value)
+    elif isinstance(value, (list, tuple, set)):
+        for nested_value in value:
+            yield from _iter_ai_messages(nested_value)
 
 
 def _source_list_from_tool_message(tool_message: ToolMessage):
@@ -428,7 +663,7 @@ async def generate_endpoint(
         # supplementing the INITIAL_SYSTEM_MESSAGE.
         input_messages.append(
             SystemMessage(
-                content="You MUST use the retrieve_health_info tool for this query even if it seems unrelated to health."
+                content=FORCE_RETRIEVE_MARKER
             )
         )
         print("Forcing RAG for this query with an additional system message.")
@@ -437,28 +672,22 @@ async def generate_endpoint(
     graph_input = {"messages": input_messages}
 
     async def stream_response_events():
-        async for stream_mode, chunk in graph.astream(
-            graph_input, config, stream_mode=["messages", "updates"]
-        ):
+        async for chunk in graph.astream(graph_input, config, stream_mode="updates"):
             if not chunk:
                 continue
 
-            if stream_mode == "messages":
-                message_chunk, _metadata = chunk
-                if isinstance(message_chunk, AIMessage):
-                    content = _stringify_stream_content(
-                        getattr(message_chunk, "content", "")
-                    )
-                    if content:
-                        yield f"data: {content}\n\n"
-                    elif getattr(message_chunk, "tool_calls", None):
-                        print(f"AI requested Tool call: {message_chunk.tool_calls}")
-                continue
+            for tool_message in _iter_tool_messages(chunk):
+                source_list = _source_list_from_tool_message(tool_message)
+                yield _format_sse_data(f"**Source:**{str(source_list)}\n")
 
-            if stream_mode == "updates":
-                for tool_message in _iter_tool_messages(chunk):
-                    source_list = _source_list_from_tool_message(tool_message)
-                    yield f"data: **Source:**{str(source_list)}\n\n"
+            for ai_message in _iter_ai_messages(chunk):
+                if getattr(ai_message, "tool_calls", None):
+                    print(f"AI requested Tool call: {ai_message.tool_calls}")
+                    continue
+
+                content = _clean_answer_content(getattr(ai_message, "content", ""))
+                if content:
+                    yield _format_sse_data(content)
 
     return StreamingResponse(
         stream_response_events(),

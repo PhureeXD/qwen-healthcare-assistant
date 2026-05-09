@@ -1,3 +1,4 @@
+# syntax=docker/dockerfile:1.7
 FROM python:3.11-slim
 
 WORKDIR /app
@@ -27,7 +28,8 @@ ENV HF_HOME=/app/hf_cache
 
 # Pre-download models
 COPY download_models.py .
-RUN python download_models.py 
+RUN --mount=type=secret,id=hf_token,target=/run/secrets/hf_token \
+    HF_TOKEN="$(cat /run/secrets/hf_token 2>/dev/null || true)" python download_models.py
 
 # Copy application files
 COPY . . 
