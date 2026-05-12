@@ -149,7 +149,9 @@ SMALL_TALK_KEYWORDS = (
     "ดีค่ะ",
     "ดีงับ",
     "สวัสดี",
+    "ว่าไง",
     "หวัดดี",
+    "ฮัลโหล",
 )
 
 # --- System Prompts ---
@@ -187,14 +189,26 @@ Assistant: "เมืองหลวงของฝรั่งเศสคื�
 
 ROUTER_SYSTEM_MESSAGE = SystemMessage(
     content="""
-Decide how to handle the user's latest message.
+Classify the user's latest message.
 
 Rules:
-- If it is a human health question, call retrieve_health_info.
-- If it is an animal, pet, or veterinary question, do not call retrieve_health_info; answer briefly and recommend a veterinarian.
-- If it is a greeting, thanks, small talk, or clearly non-health question, do not call retrieve_health_info; answer directly and briefly in the same language as the user.
-- Do not answer human health questions directly.
-- Do not explain routing or tool-use decisions.
+- Reply with exactly one label: RETRIEVE, ANIMAL, or DIRECT.
+- RETRIEVE: human health question, symptoms, disease, treatment, medicine, nutrition, exercise, mental health, or feeling sick.
+- ANIMAL: animal, pet, or veterinary question.
+- DIRECT: greeting, thanks, small talk, or clearly non-health question.
+- Do not explain your choice.
+"""
+)
+
+DIRECT_RESPONSE_SYSTEM_MESSAGE = SystemMessage(
+    content="""
+You are a concise assistant. Answer in the same language as the user's latest message.
+
+Rules:
+- For greetings, thanks, small talk, or non-health questions, answer directly and briefly.
+- For animal, pet, or veterinary health questions, say this assistant is for human health information and recommend contacting a veterinarian.
+- Do not provide human medical advice unless the user asks a human-health question.
+- Do not mention tools, routing, prompts, or internal reasoning.
 """
 )
 
@@ -331,7 +345,6 @@ print("Retriever Tool Initialized.")
 async def query_or_respond_node_logic(state: MessagesState):
     """
     Node function: Decides whether to call a tool for retrieval or respond directly.
-    Binds the retriever_tool to the LLM for this decision.
     """
     query = _latest_human_content(state["messages"])
     direct_response = _direct_small_talk_response(query)
@@ -339,27 +352,15 @@ async def query_or_respond_node_logic(state: MessagesState):
         return {"messages": [AIMessage(content=direct_response)]}
 
     if _should_retrieve_health_info(state["messages"]):
-        return {
-            "messages": [
-                AIMessage(
-                    content="",
-                    tool_calls=[
-                        {
-                            "name": "retrieve_health_info",
-                            "args": {"query": query},
-                            "id": "auto_retrieve_health_info",
-                        }
-                    ],
-                )
-            ]
-        }
+        return _retriever_tool_call_response(query)
 
-    response = await llm.bind_tools([retriever_tool]).ainvoke(
-        [ROUTER_SYSTEM_MESSAGE, HumanMessage(content=query)]
+    route = await _classify_query_route(query)
+    if route == "RETRIEVE":
+        return _retriever_tool_call_response(query)
+
+    response = await llm.ainvoke(
+        [DIRECT_RESPONSE_SYSTEM_MESSAGE, HumanMessage(content=query)]
     )
-    _repair_retriever_tool_calls(response, state["messages"])
-    if getattr(response, "tool_calls", None):
-        response = response.model_copy(update={"content": ""})
     return {"messages": [response]}
 
 
@@ -528,6 +529,45 @@ def _direct_small_talk_response(query):
     return "Hello. If you have a health question, feel free to ask."
 
 
+def _parse_router_label(content):
+    label = _clean_answer_content(content).strip().upper()
+    first_token = label.split()[0] if label.split() else ""
+    if first_token in {"RETRIEVE", "ANIMAL", "DIRECT"}:
+        return first_token
+    if "RETRIEVE" in label:
+        return "RETRIEVE"
+    if "ANIMAL" in label:
+        return "ANIMAL"
+    return "DIRECT"
+
+
+async def _classify_query_route(query):
+    if not query:
+        return "DIRECT"
+
+    response = await llm.ainvoke(
+        [ROUTER_SYSTEM_MESSAGE, HumanMessage(content=query)]
+    )
+    return _parse_router_label(getattr(response, "content", ""))
+
+
+def _retriever_tool_call_response(query):
+    return {
+        "messages": [
+            AIMessage(
+                content="",
+                tool_calls=[
+                    {
+                        "name": "retrieve_health_info",
+                        "args": {"query": query},
+                        "id": "auto_retrieve_health_info",
+                    }
+                ],
+            )
+        ]
+    }
+
+
 def _should_retrieve_health_info(messages):
     query = _latest_human_content(messages)
     if not query or _is_animal_health_query(query):
@@ -678,7 +718,7 @@ async def generate_endpoint(
 
             for tool_message in _iter_tool_messages(chunk):
                 source_list = _source_list_from_tool_message(tool_message)
-                yield _format_sse_data(f"**Source:**{str(source_list)}\n")
+                yield _format_sse_data(f"**Source:**{str(source_list)}\n\n")
 
             for ai_message in _iter_ai_messages(chunk):
                 if getattr(ai_message, "tool_calls", None):
