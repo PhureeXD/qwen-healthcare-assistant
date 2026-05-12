@@ -1,4 +1,5 @@
 import os
+import re
 
 # Suppress TensorFlow oneDNN optimization messages if not needed
 os.environ["TF_ENABLE_ONEDNN_OPTS"] = "0"
@@ -36,100 +37,103 @@ LLM_MODEL_NAME = "custom-model"
 VECTOR_DB_PATH = "/app/chroma_db" if os.path.exists("/app/chroma_db") else "chroma_db"
 
 # LLM Parameters
-LLM_TEMPERATURE = 0.3
+LLM_TEMPERATURE = 0.2
 LLM_TOP_P = 0.8
 LLM_TOP_K = 20
 LLM_NUM_PREDICT = 384
 LLM_REPEAT_LAST_N = 256
-LLM_REPEAT_PENALTY = 1.15
+LLM_REPEAT_PENALTY = 1.05
 
 # Retriever Parameters
 RETRIEVER_SEARCH_K = 6  # Number of documents to fetch initially
 RERANKER_TOP_N = 3  # Number of documents after reranking
 FORCE_RETRIEVE_MARKER = "__force_retrieve_health_info__"
 
-HUMAN_HEALTH_KEYWORDS = (
-    "ache",
-    "allergy",
-    "anxiety",
-    "blood",
-    "breath",
-    "cancer",
-    "chest",
-    "cough",
-    "covid",
-    "diabetes",
-    "diarrhea",
-    "diet",
-    "disease",
-    "dizzy",
-    "exercise",
-    "fever",
-    "flu",
-    "headache",
-    "health",
-    "heart",
-    "hospital",
-    "medicine",
-    "mental",
-    "nausea",
-    "nutrition",
-    "pain",
-    "pregnant",
-    "sick",
-    "sleep",
-    "stress",
-    "stroke",
-    "symptom",
-    "treatment",
-    "vaccine",
-    "vomit",
-    "wellness",
-    "โควิด",
-    "ไข้",
-    "ไอ",
-    "เจ็บ",
-    "เจ็บหน้าอก",
-    "เชื้อ",
-    "เบาหวาน",
-    "แพ้",
-    "แพทย์",
-    "ยา",
-    "รักษา",
-    "วัคซีน",
-    "เวียนหัว",
-    "สุขภาพ",
-    "หายใจ",
-    "หัวใจ",
-    "อาการ",
-    "อาเจียน",
-    "เจ็บป่วย",
-    "ปวด",
-    "ป่วย",
-    "โรค",
-    "โรงพยาบาล",
+HUMAN_HEALTH_RE = re.compile(
+    r"\b(?:ache|aches|allerg(?:y|ies|ic)|anxiety|blood|breath(?:ing)?|"
+    r"cancer|chest|cough|covid|diabet(?:es|ic)|diarrhea|diet|diseases?|"
+    r"dizz(?:y|iness)|exercise|fever|flu|headaches?|health|heart|hospital|"
+    r"medic(?:ine|al|ation)|mental|nausea|nutrition|pain|pregnan(?:t|cy)|"
+    r"sick|sleep|stress|stroke|symptoms?|treatments?|vaccines?|vomit(?:ing)?|"
+    r"wellness)\b",
+    re.IGNORECASE,
+)
+
+ANIMAL_HEALTH_RE = re.compile(
+    r"\b(?:animals?|cats?|dogs?|pets?|veterinar(?:y|ian)|vet)\b",
+    re.IGNORECASE,
+)
+
+THAI_HUMAN_HEALTH_PHRASES = (
     "กระเพาะ",
     "ความดัน",
+    "ความเครียด",
     "คลื่นไส้",
+    "โควิด",
+    "เจ็บหน้าอก",
+    "เจ็บป่วย",
+    "ซึมเศร้า",
     "ตับ",
     "ติดเชื้อ",
     "ท้องผูก",
     "ท้องเสีย",
+    "นอนไม่หลับ",
+    "เบาหวาน",
     "ปอด",
     "มะเร็ง",
+    "ไม่สบาย",
+    "รักษา",
+    "โรงพยาบาล",
+    "วัคซีน",
+    "เวียนหัว",
     "สมอง",
+    "สุขภาพ",
+    "หายใจ",
+    "หัวใจ",
     "เหนื่อย",
+    "อาการ",
+    "อาเจียน",
     "อ้วก",
+    "ออกกำลังกาย",
     "ไต",
+    "ไข้",
+    "ปวด",
+    "ป่วย",
+    "แพทย์",
+    "โรค",
 )
 
-ANIMAL_HEALTH_KEYWORDS = (
-    "animal",
-    "cat",
-    "dog",
-    "pet",
-    "veterinary",
-    "vet",
+THAI_CONTEXTUAL_HEALTH_PHRASES = (
+    "กินยา",
+    "ขนาดยา",
+    "จ่ายยา",
+    "ทานยา",
+    "ผลข้างเคียง",
+    "ภูมิแพ้",
+    "ยาแก้",
+    "ยาฆ่าเชื้อ",
+    "ยาปฏิชีวนะ",
+    "ยารักษา",
+    "ยาลด",
+    "ยาอะไร",
+    "รับยา",
+    "ลืมกินยา",
+    "หยุดยา",
+    "อาการแพ้",
+    "แพ้อากาศ",
+    "แพ้อาหาร",
+    "แพ้ยา",
+    "ใช้ยา",
+    "ไอเป็นเลือด",
+    "ไอมีเสมหะ",
+    "ไอมาก",
+    "ไอเรื้อรัง",
+    "ไอแห้ง",
+)
+
+THAI_EXACT_HEALTH_TERMS = frozenset(("ยา", "ไอ", "แพ้", "เจ็บ"))
+
+THAI_ANIMAL_HEALTH_PHRASES = (
     "หมา",
     "แมว",
     "สัตวแพทย์",
@@ -138,12 +142,12 @@ ANIMAL_HEALTH_KEYWORDS = (
     "สุนัข",
 )
 
-SMALL_TALK_KEYWORDS = (
-    "hello",
-    "hey",
-    "hi",
-    "thanks",
-    "thank you",
+SMALL_TALK_RE = re.compile(
+    r"\b(?:hello|hey|hi|thanks|thank you)\b",
+    re.IGNORECASE,
+)
+
+THAI_SMALL_TALK_PHRASES = (
     "ขอบคุณ",
     "ดีครับ",
     "ดีค่ะ",
@@ -152,6 +156,35 @@ SMALL_TALK_KEYWORDS = (
     "ว่าไง",
     "หวัดดี",
     "ฮัลโหล",
+)
+
+HEALTH_CAPABILITY_PATTERNS = (
+    "can i ask",
+    "may i ask",
+    "ask about",
+    "สอบถามได้",
+    "สามารถสอบถาม",
+    "ถามได้",
+    "ถามเรื่อง",
+    "คุยเรื่อง",
+    "อยากรู้เรื่อง",
+)
+
+HEALTH_CAPABILITY_CONFIRMERS = (
+    "right",
+    "okay",
+    "ok",
+    "allowed",
+    "ได้ไหม",
+    "ได้มั้ย",
+    "ได้ป่ะ",
+    "ได้ปะ",
+    "ได้รึเปล่า",
+    "ได้หรือเปล่า",
+    "ใช่ไหม",
+    "ใช่มั้ย",
+    "ใช่ป่ะ",
+    "ใช่ปะ",
 )
 
 # --- System Prompts ---
@@ -195,7 +228,7 @@ Rules:
 - Reply with exactly one label: RETRIEVE, ANIMAL, or DIRECT.
 - RETRIEVE: human health question, symptoms, disease, treatment, medicine, nutrition, exercise, mental health, or feeling sick.
 - ANIMAL: animal, pet, or veterinary question.
-- DIRECT: greeting, thanks, small talk, or clearly non-health question.
+- DIRECT: greeting, thanks, small talk, health-capability/meta question, or clearly non-health question.
 - Do not explain your choice.
 """
 )
@@ -351,6 +384,39 @@ async def query_or_respond_node_logic(state: MessagesState):
     if direct_response and not _is_human_health_query(query):
         return {"messages": [AIMessage(content=direct_response)]}
 
+    normalized_query = query.strip().lower()
+    if (
+        normalized_query
+        and not _is_animal_health_query(normalized_query)
+        and _is_human_health_query(normalized_query)
+    ):
+        has_capability_pattern = any(
+            pattern in normalized_query for pattern in HEALTH_CAPABILITY_PATTERNS
+        )
+        has_capability_confirmation = (
+            "สามารถสอบถาม" in normalized_query
+            or "can i ask" in normalized_query
+            or "may i ask" in normalized_query
+            or any(
+                confirmer in normalized_query
+                for confirmer in HEALTH_CAPABILITY_CONFIRMERS
+            )
+        )
+        if has_capability_pattern and has_capability_confirmation:
+            if _contains_thai(query):
+                response = (
+                    "ได้ครับ ถามเรื่องโรค อาการ สุขภาพ ยา หรือการดูแลตัวเองเบื้องต้นได้เลย "
+                    "แต่คำตอบเป็นข้อมูลทั่วไป ไม่ใช่การวินิจฉัย หากมีอาการรุนแรงหรือฉุกเฉินควรพบแพทย์ทันที"
+                )
+            else:
+                response = (
+                    "Yes. You can ask about diseases, symptoms, general health, "
+                    "medicines, or basic self-care. I can provide general "
+                    "information, but not a diagnosis; seek urgent medical care "
+                    "for severe or emergency symptoms."
+                )
+            return {"messages": [AIMessage(content=response)]}
+
     if _should_retrieve_health_info(state["messages"]):
         return _retriever_tool_call_response(query)
 
@@ -490,21 +556,31 @@ def _latest_human_content(messages):
 def _has_force_retrieve_marker(messages):
     return any(
         getattr(message, "type", None) == "system"
-        and FORCE_RETRIEVE_MARKER in _stringify_stream_content(
-            getattr(message, "content", "")
-        )
+        and FORCE_RETRIEVE_MARKER
+        in _stringify_stream_content(getattr(message, "content", ""))
         for message in messages
     )
 
 
+def _contains_any_phrase(text, phrases):
+    return any(phrase in text for phrase in phrases)
+
+
 def _is_animal_health_query(query):
     normalized_query = query.lower()
-    return any(keyword in normalized_query for keyword in ANIMAL_HEALTH_KEYWORDS)
+    return bool(ANIMAL_HEALTH_RE.search(normalized_query)) or _contains_any_phrase(
+        normalized_query, THAI_ANIMAL_HEALTH_PHRASES
+    )
 
 
 def _is_human_health_query(query):
     normalized_query = query.lower()
-    return any(keyword in normalized_query for keyword in HUMAN_HEALTH_KEYWORDS)
+    return (
+        bool(HUMAN_HEALTH_RE.search(normalized_query))
+        or _contains_any_phrase(normalized_query, THAI_HUMAN_HEALTH_PHRASES)
+        or _contains_any_phrase(normalized_query, THAI_CONTEXTUAL_HEALTH_PHRASES)
+        or normalized_query.strip(" ?!.,;:()[]{}\"'“”‘’") in THAI_EXACT_HEALTH_TERMS
+    )
 
 
 def _contains_thai(text):
@@ -516,7 +592,10 @@ def _direct_small_talk_response(query):
     if not normalized_query:
         return None
 
-    if not any(keyword in normalized_query for keyword in SMALL_TALK_KEYWORDS):
+    if not (
+        SMALL_TALK_RE.search(normalized_query)
+        or _contains_any_phrase(normalized_query, THAI_SMALL_TALK_PHRASES)
+    ):
         return None
 
     if _contains_thai(query):
@@ -545,9 +624,7 @@ async def _classify_query_route(query):
     if not query:
         return "DIRECT"
 
-    response = await llm.ainvoke(
-        [ROUTER_SYSTEM_MESSAGE, HumanMessage(content=query)]
-    )
+    response = await llm.ainvoke([ROUTER_SYSTEM_MESSAGE, HumanMessage(content=query)])
     return _parse_router_label(getattr(response, "content", ""))
 
 
@@ -701,11 +778,7 @@ async def generate_endpoint(
     if useRAG:
         # This message is added to strongly encourage tool use for the current query,
         # supplementing the INITIAL_SYSTEM_MESSAGE.
-        input_messages.append(
-            SystemMessage(
-                content=FORCE_RETRIEVE_MARKER
-            )
-        )
+        input_messages.append(SystemMessage(content=FORCE_RETRIEVE_MARKER))
         print("Forcing RAG for this query with an additional system message.")
 
     input_messages.append(HumanMessage(content=query))
