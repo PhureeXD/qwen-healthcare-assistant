@@ -43,6 +43,14 @@ LLM_TOP_K = 20
 LLM_NUM_PREDICT = 384
 LLM_REPEAT_LAST_N = 256
 LLM_REPEAT_PENALTY = 1.05
+LLM_ERROR_MESSAGE_EN = (
+    "I'm having trouble connecting to the model or knowledge base right now. "
+    "Please try again in a moment."
+)
+LLM_ERROR_MESSAGE_TH = (
+    "ตอนนี้ระบบมีปัญหาในการเชื่อมต่อโมเดลหรือฐานความรู้ "
+    "กรุณาลองใหม่อีกครั้งในอีกสักครู่"
+)
 
 # Retriever Parameters
 RETRIEVER_SEARCH_K = 6  # Number of documents to fetch initially
@@ -424,8 +432,12 @@ async def query_or_respond_node_logic(state: MessagesState):
     if route == "RETRIEVE":
         return _retriever_tool_call_response(query)
 
-    response = await llm.ainvoke(
-        [DIRECT_RESPONSE_SYSTEM_MESSAGE, HumanMessage(content=query)]
+    response = await _safe_llm_ainvoke(
+        [DIRECT_RESPONSE_SYSTEM_MESSAGE] + _conversation_history_for_llm(
+            state["messages"]
+        ),
+        query,
+        "Direct response generation failed",
     )
     return {"messages": [response]}
 
@@ -462,14 +474,6 @@ async def generate_rag_response_node_logic(state: MessagesState):
         else "No relevant documents were found to answer the current question."
     )
 
-    # Prepare messages for the generation LLM call (history + new system prompt with docs)
-    # Include human messages, initial system messages, and AI responses (not tool calls)
-    conversation_history_for_llm = [
-        msg
-        for msg in state["messages"]
-        if msg.type in ("human", "system") or (msg.type == "ai" and not msg.tool_calls)
-    ]
-
     # Construct the system prompt with retrieved documents
     current_system_prompt_content = RAG_SYSTEM_PROMPT_TEMPLATE.format(
         docs_content=docs_content
@@ -477,9 +481,13 @@ async def generate_rag_response_node_logic(state: MessagesState):
 
     prompt_for_generation = [
         SystemMessage(content=current_system_prompt_content)
-    ] + conversation_history_for_llm
+    ] + _conversation_history_for_llm(state["messages"])
 
-    response = await llm.ainvoke(prompt_for_generation)
+    response = await _safe_llm_ainvoke(
+        prompt_for_generation,
+        _latest_human_content(state["messages"]),
+        "RAG response generation failed",
+    )
     return {"messages": [response]}
 
 
@@ -553,6 +561,27 @@ def _latest_human_content(messages):
     return ""
 
 
+def _conversation_history_for_llm(messages):
+    return [
+        msg
+        for msg in messages
+        if msg.type == "human"
+        or (msg.type == "ai" and not getattr(msg, "tool_calls", None))
+    ]
+
+
+def _llm_error_message(query):
+    return LLM_ERROR_MESSAGE_TH if _contains_thai(query) else LLM_ERROR_MESSAGE_EN
+
+
+async def _safe_llm_ainvoke(messages, fallback_query, log_context):
+    try:
+        return await llm.ainvoke(messages)
+    except Exception as exc:
+        print(f"{log_context}: {type(exc).__name__}: {exc}")
+        return AIMessage(content=_llm_error_message(fallback_query))
+
+
 def _has_force_retrieve_marker(messages):
     return any(
         getattr(message, "type", None) == "system"
@@ -592,9 +621,17 @@ def _direct_small_talk_response(query):
     if not normalized_query:
         return None
 
+    simple_query = normalized_query.strip(" ?!.,;:()[]{}\"'“”‘’")
+    thai_simple_query = re.sub(
+        r"(ครับ|ค่ะ|คะ|คับ|จ้า|งับบ?|นะ)+$",
+        "",
+        simple_query,
+    ).strip()
+
     if not (
-        SMALL_TALK_RE.search(normalized_query)
-        or _contains_any_phrase(normalized_query, THAI_SMALL_TALK_PHRASES)
+        SMALL_TALK_RE.fullmatch(simple_query)
+        or simple_query in THAI_SMALL_TALK_PHRASES
+        or thai_simple_query in THAI_SMALL_TALK_PHRASES
     ):
         return None
 
@@ -624,7 +661,14 @@ async def _classify_query_route(query):
     if not query:
         return "DIRECT"
 
-    response = await llm.ainvoke([ROUTER_SYSTEM_MESSAGE, HumanMessage(content=query)])
+    try:
+        response = await llm.ainvoke(
+            [ROUTER_SYSTEM_MESSAGE, HumanMessage(content=query)]
+        )
+    except Exception as exc:
+        print(f"Route classification failed: {type(exc).__name__}: {exc}")
+        return "DIRECT"
+
     return _parse_router_label(getattr(response, "content", ""))
 
 
@@ -785,22 +829,26 @@ async def generate_endpoint(
     graph_input = {"messages": input_messages}
 
     async def stream_response_events():
-        async for chunk in graph.astream(graph_input, config, stream_mode="updates"):
-            if not chunk:
-                continue
-
-            for tool_message in _iter_tool_messages(chunk):
-                source_list = _source_list_from_tool_message(tool_message)
-                yield _format_sse_data(f"**Source:**{str(source_list)}\n\n")
-
-            for ai_message in _iter_ai_messages(chunk):
-                if getattr(ai_message, "tool_calls", None):
-                    print(f"AI requested Tool call: {ai_message.tool_calls}")
+        try:
+            async for chunk in graph.astream(graph_input, config, stream_mode="updates"):
+                if not chunk:
                     continue
 
-                content = _clean_answer_content(getattr(ai_message, "content", ""))
-                if content:
-                    yield _format_sse_data(content)
+                for tool_message in _iter_tool_messages(chunk):
+                    source_list = _source_list_from_tool_message(tool_message)
+                    yield _format_sse_data(f"**Source:**{str(source_list)}\n\n")
+
+                for ai_message in _iter_ai_messages(chunk):
+                    if getattr(ai_message, "tool_calls", None):
+                        print(f"AI requested Tool call: {ai_message.tool_calls}")
+                        continue
+
+                    content = _clean_answer_content(getattr(ai_message, "content", ""))
+                    if content:
+                        yield _format_sse_data(content)
+        except Exception as exc:
+            print(f"Streaming response failed: {type(exc).__name__}: {exc}")
+            yield _format_sse_data(_llm_error_message(query))
 
     return StreamingResponse(
         stream_response_events(),
